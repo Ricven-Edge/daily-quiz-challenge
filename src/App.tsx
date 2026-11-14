@@ -11,7 +11,6 @@ import {
   showRewarded,
   maintainAds,
   recoverAds,
-  isInterstitialReady,
 } from './adMob';
 import { getQuizQuestions } from './questionEngine';
 
@@ -44,7 +43,6 @@ function App() {
   const [best, setBest] = useState(Number(localStorage.getItem('dq-best') || 0));
   const [rewardClaimed, setRewardClaimed] = useState(false);
   const [rewardLoading, setRewardLoading] = useState(false);
-  const interstitialShown = useRef(false);
 
   // ---------- Startup & lifecycle ----------
   useEffect(() => {
@@ -110,15 +108,9 @@ function App() {
     void showBanner('top');
   }, [screen, booting]);
 
-  // Results screen interstitial
+  // Reset the previous run's reward state when returning to the home screen.
   useEffect(() => {
-    if (screen === 'result' && !interstitialShown.current) {
-      interstitialShown.current = true;
-      const t = setTimeout(() => void showInterstitial(), 700);
-      return () => clearTimeout(t);
-    }
-    if (screen !== 'result') {
-      interstitialShown.current = false;
+    if (screen === 'home') {
       setRewardClaimed(false);
       setBonus(0);
     }
@@ -136,25 +128,31 @@ function App() {
     setRewardClaimed(false);
     setError('');
     setLoading(true);
-    setScreen('quiz');
 
-    // Keep ad inventory warm
+    // Keep the home screen visible while the quiz is prepared.
+    // The quiz screen and its timer must not start behind an interstitial.
     maintainAds();
-
-    // Try to show an interstitial while questions load (only if already ready)
-    if (isInterstitialReady()) {
-      void showInterstitial();
-    }
 
     try {
       const selected = await getQuizQuestions(all[c].name, [], 10);
-      setQuestions(
-        selected.map((q) => ({
-          q: q.question,
-          a: q.correctAnswer,
-          o: q.options,
-        }))
-      );
+      const preparedQuestions = selected.map((q) => ({
+        q: q.question,
+        a: q.correctAnswer,
+        o: q.options,
+      }));
+
+      if (!preparedQuestions.length) {
+        throw new Error('No questions were returned. Please try again.');
+      }
+
+      setQuestions(preparedQuestions);
+
+      // Present one interstitial before entering the quiz when one is ready.
+      // showInterstitial handles its bounded readiness wait and resolves after dismissal.
+      await showInterstitial();
+
+      // Only now enter the quiz; the question timer starts from this point.
+      setScreen('quiz');
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unable to prepare the quiz.');
       setQuestions([]);
