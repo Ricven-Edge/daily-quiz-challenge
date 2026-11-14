@@ -156,6 +156,7 @@ function App() {
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Unable to prepare the quiz.');
       setQuestions([]);
+      setScreen('quiz');
     } finally {
       setLoading(false);
     }
