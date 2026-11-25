@@ -135,12 +135,16 @@ export async function showInterstitial() {
   if (!Capacitor.isNativePlatform() || fullScreenAdShowing) return false;
   try {
     await initAds();
-    const deadline = Date.now() + 8000;
+    const deadline = Date.now() + 6000; // slightly tighter so we don't hold the result screen too long
     while (!fresh(interstitialReady, interstitialAt, MAX_AGE) && Date.now() < deadline) {
       await preloadInterstitial();
-      if (!fresh(interstitialReady, interstitialAt, MAX_AGE)) await sleep(500);
+      if (!fresh(interstitialReady, interstitialAt, MAX_AGE)) await sleep(400);
     }
-    if (!fresh(interstitialReady, interstitialAt, MAX_AGE)) return false;
+    if (!fresh(interstitialReady, interstitialAt, MAX_AGE)) {
+      // Ensure we keep trying in the background
+      void preloadInterstitial(true);
+      return false;
+    }
 
     fullScreenAdShowing = true;
     await AdMob.showInterstitial();
@@ -149,6 +153,7 @@ export async function showInterstitial() {
     return true;
   } catch (e) {
     interstitialReady = false; interstitialAt = 0;
+    fullScreenAdShowing = false;
     console.error('[AdMob] interstitial show', e);
     retry('i', () => void preloadInterstitial(true));
     return false;
@@ -190,7 +195,10 @@ export async function showRewarded() {
       await preloadRewarded();
       if (!fresh(rewardedReady, rewardedAt, MAX_AGE)) await sleep(500);
     }
-    if (!fresh(rewardedReady, rewardedAt, MAX_AGE)) return false;
+    if (!fresh(rewardedReady, rewardedAt, MAX_AGE)) {
+      void preloadRewarded(true);
+      return false;
+    }
 
     fullScreenAdShowing = true;
     const reward = await AdMob.showRewardVideoAd();
@@ -199,6 +207,7 @@ export async function showRewarded() {
     return Number(reward?.amount || 0) > 0;
   } catch (e) {
     rewardedReady = false; rewardedAt = 0;
+    fullScreenAdShowing = false;
     console.error('[AdMob] rewarded show', e);
     retry('r', () => void preloadRewarded(true));
     return false;
@@ -240,7 +249,10 @@ export async function showRewardedInterstitial() {
       await preloadRewardedInterstitial();
       if (!fresh(rewardedInterstitialReady, rewardedInterstitialAt, MAX_AGE)) await sleep(500);
     }
-    if (!fresh(rewardedInterstitialReady, rewardedInterstitialAt, MAX_AGE)) return false;
+    if (!fresh(rewardedInterstitialReady, rewardedInterstitialAt, MAX_AGE)) {
+      void preloadRewardedInterstitial(true);
+      return false;
+    }
 
     fullScreenAdShowing = true;
     const reward = await AdMob.showRewardInterstitialAd();
@@ -249,6 +261,7 @@ export async function showRewardedInterstitial() {
     return Number(reward?.amount || 0) > 0;
   } catch (e) {
     rewardedInterstitialReady = false; rewardedInterstitialAt = 0;
+    fullScreenAdShowing = false;
     console.error('[AdMob] rewarded interstitial show', e);
     retry('ri', () => void preloadRewardedInterstitial(true));
     return false;
@@ -316,6 +329,7 @@ export async function showAppOpenIfAppropriate(maxWaitMs = 0) {
   } catch (e) {
     appOpenReady = false;
     appOpenAt = 0;
+    fullScreenAdShowing = false;
     console.error('[AdMob] app open show', e);
     retry('ao', () => void preloadAppOpen(true));
     return false;

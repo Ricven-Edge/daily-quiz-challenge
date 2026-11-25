@@ -5,7 +5,6 @@ import {
   preloadInterstitial,
   preloadRewarded,
   preloadRewardedInterstitial,
-  preloadAppOpen,
   showAppOpenIfAppropriate,
   showInterstitial,
   showRewarded,
@@ -42,6 +41,8 @@ function App() {
   const [rewardClaimed, setRewardClaimed] = useState(false);
   const [rewardLoading, setRewardLoading] = useState(false);
   const interstitialShown = useRef(false);
+  // Generation token: only the latest start() is allowed to update quiz state.
+  const startIdRef = useRef(0);
   const bank = useMemo(() => questions, [questions]);
 
   useEffect(() => {
@@ -125,6 +126,11 @@ function App() {
   }, [screen]);
 
   const start = async (c: number) => {
+    // Prevent concurrent starts – this is the main fix for scattered quizzes.
+    if (loading) return;
+
+    const myStartId = ++startIdRef.current;
+
     setCat(c);
     setQuestions([]);
     setIdx(0);
@@ -135,16 +141,23 @@ function App() {
     setError('');
     setLoading(true);
     setScreen('quiz');
-    // Start/reinforce all full-screen ad preloads as soon as a quiz begins.\n    maintainAds();
+    maintainAds();
 
     try {
       const selected = await getQuizQuestions(all[c].name, [], 10);
+
+      // Ignore results from an abandoned / superseded start.
+      if (startIdRef.current !== myStartId) return;
+
       setQuestions(selected.map((q) => ({ q: q.question, a: q.correctAnswer, o: q.options })));
     } catch (e) {
+      if (startIdRef.current !== myStartId) return;
       setError(e instanceof Error ? e.message : 'Unable to prepare the quiz.');
       setQuestions([]);
     } finally {
-      setLoading(false);
+      if (startIdRef.current === myStartId) {
+        setLoading(false);
+      }
     }
   };
 
@@ -188,6 +201,8 @@ function App() {
   };
 
   const reset = () => {
+    // Invalidate any in-flight start so its result is discarded.
+    startIdRef.current += 1;
     setScreen('home');
     setPicked(null);
     setError('');
@@ -249,7 +264,13 @@ function App() {
           <h2>Choose a category</h2>
           <div className="grid">
             {all.map((c, i) => (
-              <button className="cat" key={c.key} onClick={() => void start(i)}>
+              <button
+                className="cat"
+                key={c.key}
+                onClick={() => void start(i)}
+                disabled={loading}
+                aria-disabled={loading}
+              >
                 <span>{c.icon}</span>
                 <div>
                   <b>{c.name}</b>
@@ -275,15 +296,16 @@ function App() {
       {screen === 'quiz' && (
         <main className="quiz-main">
           <div className="quiztop">
-            <button onClick={reset}>← Exit</button>
+            <button onClick={reset} disabled={loading && !error}>← Exit</button>
             <span>{questions.length ? `${idx + 1} / 10` : '— / 10'}</span>
             <b>🔥 {streak}</b>
           </div>
           <div className="progress"><i style={{ width: `${questions.length ? ((idx + 1) / 10) * 100 : 0}%` }} /></div>
 
           {loading ? (
-            <section className="question">
+            <section className="question loading-state">
               <div className="qcat">{all[cat].icon} {all[cat].name}</div>
+              <div className="quiz-spinner" aria-label="Loading quiz" />
               <h1>Getting your quiz online…</h1>
               <p>Fetching fresh questions from the online question source.</p>
             </section>
@@ -335,7 +357,9 @@ function App() {
             </button>
           )}
           {rewardClaimed && <p style={{ color: '#4ade80' }}>✅ Bonus claimed! +20 points</p>}
-          <button className="primary" onClick={() => void start(cat)}>Play Again</button>
+          <button className="primary" onClick={() => void start(cat)} disabled={loading}>
+            Play Again
+          </button>
           <button className="secondary" onClick={reset}>Choose Another Category</button>
         </main>
       )}
